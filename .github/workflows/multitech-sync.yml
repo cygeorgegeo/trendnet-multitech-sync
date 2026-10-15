@@ -1,0 +1,48 @@
+name: Multitech stock sync
+
+on:
+  schedule:
+    - cron: "17 4 * * *"   # daily 04:17 UTC = 07:17 Cyprus summer / 06:17 winter
+  workflow_dispatch:
+    inputs:
+      command:
+        description: "setup (one-time) or sync"
+        type: choice
+        options: [sync, setup]
+        default: sync
+      dry_run:
+        description: "Dry run (report only, no writes)"
+        type: boolean
+        default: true
+
+concurrency:
+  group: multitech-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Run
+        env:
+          MT_USER: ${{ secrets.MT_USER }}
+          MT_PASS: ${{ secrets.MT_PASS }}
+          ODOO_API_KEY: ${{ secrets.ODOO_API_KEY }}
+          ODOO_USER: ${{ vars.ODOO_USER || 'george@trendnet.com.cy' }}
+          # Manual run: the checkbox decides. Scheduled run: repo variable DRY_RUN (unset = dry run).
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && (inputs.dry_run && '1' || '0') || (vars.DRY_RUN || '1') }}
+        run: python multitech_sync.py ${{ inputs.command || 'sync' }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: multitech-report-${{ github.run_number }}
+          path: report/
+          if-no-files-found: ignore
+          retention-days: 30
