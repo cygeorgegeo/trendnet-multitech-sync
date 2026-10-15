@@ -52,7 +52,7 @@ REPORT_DIR = os.environ.get("REPORT_DIR", "report")
 
 # Safety: never mark products "Not listed" unless the crawl looks complete.
 MIN_ITEMS = 1500
-PAGE_DELAY = 0.35  # seconds between B2B page requests
+WORKERS = int(os.environ.get("MT_WORKERS", "6"))  # parallel B2B page requests
 
 # Greek look-alike letters appear in the site's labels ("In Stοck" with Greek omicron)
 _GREEK = str.maketrans("ΑΒΕΖΗΙΚΜΝΟΡΤΥΧαοιρνκτ", "ABEZHIKMNOPTYXaoipvkt")
@@ -143,33 +143,45 @@ def parse_listing(html):
 
 
 def b2b_crawl(s):
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    t0 = time.time()
+
     def get(page):
         url = f"{B2B}/en/products" + (f"?page={page}" if page else "")
-        for attempt in range(4):
+        last_err = ""
+        for attempt in range(3):
             try:
-                r = s.get(url, timeout=45)
+                t = time.time()
+                r = s.get(url, timeout=40)
                 if r.status_code == 200:
+                    if page and page % 20 == 0:
+                        log(f"  page {page}: {time.time() - t:.1f}s")
                     return r.text
-            except requests.RequestException:
-                pass
-            time.sleep(2 + attempt * 3)
-        raise RuntimeError(f"B2B page {page} failed")
+                last_err = f"HTTP {r.status_code}"
+            except requests.RequestException as e:
+                last_err = type(e).__name__
+            log(f"  page {page} attempt {attempt + 1} failed ({last_err})")
+            time.sleep(3 + attempt * 5)
+        raise RuntimeError(f"B2B page {page} failed: {last_err}")
 
     first, last = parse_listing(get(0))
     if last is None:
         raise RuntimeError("Could not read pager on /en/products (layout changed or not logged in)")
-    log(f"B2B: {last + 1} pages")
+    log(f"B2B: {last + 1} pages, first page {time.time() - t0:.1f}s")
     items = list(first)
-    for p in range(1, last + 1):
-        time.sleep(PAGE_DELAY)
-        page_items, _ = parse_listing(get(p))
-        items.extend(page_items)
-        if p % 25 == 0:
-            log(f"  page {p}/{last}  items {len(items)}")
+    done = 0
+    with ThreadPoolExecutor(max_workers=WORKERS) as ex:
+        futs = {ex.submit(get, p): p for p in range(1, last + 1)}
+        for f in as_completed(futs):
+            page_items, _ = parse_listing(f.result())
+            items.extend(page_items)
+            done += 1
+            if done % 25 == 0:
+                log(f"  {done}/{last} pages, {len(items)} items, {time.time() - t0:.0f}s")
     by_sku = {}
     for it in items:
         by_sku.setdefault(it["sku"].strip().upper(), it)
-    log(f"B2B: {len(items)} cards, {len(by_sku)} unique SKUs")
+    log(f"B2B: {len(items)} cards, {len(by_sku)} unique SKUs in {time.time() - t0:.0f}s")
     return by_sku
 
 
