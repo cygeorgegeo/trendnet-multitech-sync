@@ -251,6 +251,53 @@ def setup():
         log("x_supply_state: Multitech added (old compute backed up in report/)")
 
 
+def write_pricelist(od, feed, code_tid, path):
+    """Excel price list: every Multitech B2B product + your Odoo product/price when matched."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill
+    tids = sorted({t for t, _ in code_tid.values()})
+    tf = {f["name"] for f in od("ir.model.fields", "search_read",
+                                 [("model", "=", "product.template"), ("name", "in", ["x_final_incl"])],
+                                 fields=["name"])}
+    fields = ["name", "default_code", "list_price", "is_published"] + (["x_final_incl"] if "x_final_incl" in tf else [])
+    info = {}
+    for ch in chunks(tids, 500):
+        for t in od("product.template", "read", ch, fields=fields):
+            info[t["id"]] = t
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Multitech price list"
+    head = ["SKU", "Multitech product", "Multitech price € (excl. VAT)", "Multitech stock",
+            "In Odoo", "Odoo product", "Odoo buy price €", "Price change €",
+            "Trendnet sale price € (excl. VAT)", "Trendnet shop price € (incl. VAT)", "On website"]
+    ws.append(head)
+    for c in ws[1]:
+        c.font = Font(bold=True, color="FFFFFF")
+        c.fill = PatternFill("solid", fgColor="FC7600")
+    for sku in sorted(feed):
+        it = feed[sku]
+        m = code_tid.get(sku)
+        t = info.get(m[0]) if m else None
+        old = m[1] if m else None
+        diff = round(it["price"] - old, 2) if (m and it["price"] is not None and old is not None) else None
+        ws.append([it["sku"], it["name"], it["price"], it["stock"],
+                   "Yes" if m else "No",
+                   t["name"] if t else None,
+                   old, diff,
+                   t["list_price"] if t else None,
+                   t.get("x_final_incl") if t else None,
+                   ("Yes" if t["is_published"] else "No") if t else None])
+    for col, w in zip("ABCDEFGHIJK", [18, 70, 14, 14, 8, 50, 12, 12, 14, 14, 10]):
+        ws.column_dimensions[col].width = w
+    for col in "CGHIJ":
+        for cell in ws[col][1:]:
+            cell.number_format = "#,##0.00"
+    ws.freeze_panes = "C2"
+    ws.auto_filter.ref = ws.dimensions
+    wb.save(path)
+    log(f"Price list: {len(feed)} products -> {os.path.basename(path)}")
+
+
 def chunks(seq, n=200):
     seq = list(seq)
     for i in range(0, len(seq), n):
@@ -303,6 +350,11 @@ def sync():
             tmpl_target[tid] = avail
 
     avail_changes = {tid: a for tid, a in tmpl_target.items() if cur_avail.get(tid, "") != a}
+    code_tid = {}
+    for r in rows:
+        c = (r["product_code"] or "").strip().upper()
+        if c and r["product_tmpl_id"]:
+            code_tid.setdefault(c, (r["product_tmpl_id"][0], r["price"]))
     new_skus = [feed[k] for k in feed if k not in matched_skus]
 
     # ---------------------------------------------------------------- report
@@ -323,6 +375,11 @@ def sync():
         w.writerow(["sku", "name", "price", "stock"])
         for it in sorted(new_skus, key=lambda x: x["sku"]):
             w.writerow([it["sku"], it["name"], it["price"], it["stock"]])
+
+    try:
+        write_pricelist(od, feed, code_tid, os.path.join(REPORT_DIR, f"multitech_pricelist_{stamp}.xlsx"))
+    except Exception as e:  # never let the report break the sync
+        log(f"Price list not written: {e}")
 
     dist = defaultdict(int)
     for a in tmpl_target.values():
