@@ -54,6 +54,8 @@ MAX_NEW = int(os.environ.get("MAX_NEW", "500"))  # safety cap on products create
 NEW_CATEG = os.environ.get("NEW_CATEG", "New Arrivals")
 IMAGES = os.environ.get("IMAGES", "1").strip().lower() not in ("0", "false", "no")  # fill missing pictures
 MAX_IMAGES = int(os.environ.get("MAX_IMAGES", "3000"))
+PROFIT = float(os.environ.get("PROFIT_PCT", "17")) / 100  # sale price = Multitech price + PROFIT (excl. VAT)
+SET_PRICES = os.environ.get("SET_PRICES", "1").strip().lower() not in ("0", "false", "no")
 
 # Safety: never mark products "Not listed" unless the crawl looks complete.
 MIN_ITEMS = 1500
@@ -357,7 +359,7 @@ def apply_new_products(od, link, create, now):
             od("product.template", "create", {
                 "name": it["name"][:250], "default_code": it["sku"], "categ_id": categ,
                 "type": "consu", "sale_ok": True, "purchase_ok": True, "is_published": False,
-                "list_price": 0.0, "standard_price": it["price"] or 0.0,
+                "list_price": sale_price(it["price"]), "standard_price": it["price"] or 0.0,
                 "x_mt_availability": it["stock"], "x_mt_synced": now,
                 **({"image_1920": b} if IMAGES and it.get("img") and (b := fetch_image(it["img"])) else {}),
                 "seller_ids": [(0, 0, {"partner_id": PARTNER_ID, "product_code": it["sku"],
@@ -365,6 +367,47 @@ def apply_new_products(od, link, create, now):
             })
             created += 1
     return linked, created
+
+
+def sale_price(cost):
+    return round((cost or 0.0) * (1 + PROFIT), 2) if cost else 0.0
+
+
+def write_many(model, items, workers=6):
+    """Parallel per-record writes (each thread has its own XML-RPC connection)."""
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+    local = threading.local()
+
+    def one(item):
+        if not hasattr(local, "od"):
+            local.od = Odoo()
+        rid, vals = item
+        local.od(model, "write", [rid], vals)
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        list(ex.map(one, items))
+    return len(items)
+
+
+def plan_prices(od, rows, feed):
+    """Read-only: cost = Multitech price, sale price = Multitech price + PROFIT, where they differ."""
+    tid_price = {}
+    for r in rows:
+        it = feed.get((r["product_code"] or "").strip().upper())
+        if it and it["price"] and r["product_tmpl_id"]:
+            tid_price.setdefault(r["product_tmpl_id"][0], it["price"])
+    todo = []
+    for ch in chunks(sorted(tid_price), 1000):
+        for t in od("product.template", "read", ch, fields=["list_price", "standard_price"]):
+            cost = tid_price[t["id"]]
+            vals = {}
+            if abs((t["standard_price"] or 0) - cost) > 0.005:
+                vals["standard_price"] = cost
+            if abs((t["list_price"] or 0) - sale_price(cost)) > 0.005:
+                vals["list_price"] = sale_price(cost)
+            if vals:
+                todo.append((t["id"], vals))
+    return todo
 
 
 def fetch_image(url):
@@ -463,6 +506,7 @@ def sync():
     new_skus = [feed[k] for k in feed if k not in matched_skus]
     link, create = plan_new_products(od, new_skus) if CREATE_NEW else ([], [])
     img_todo = plan_images(od, feed, code_tid)[:MAX_IMAGES] if IMAGES else []
+    price_todo = plan_prices(od, rows, feed) if SET_PRICES else []
 
     # ---------------------------------------------------------------- report
     os.makedirs(REPORT_DIR, exist_ok=True)
@@ -502,6 +546,7 @@ def sync():
         f"- Multitech SKUs not in Odoo: {len(new_skus)} -> link to existing: **{len(link)}**, "
         f"create in {NEW_CATEG}: **{min(len(create), MAX_NEW)}**" + (" (cap reached)" if len(create) > MAX_NEW else ""),
         f"- Pictures to add (products with no picture): **{len(img_todo)}**",
+        f"- Cost / sale price (+{PROFIT * 100:g}%) updates: **{len(price_todo)}**",
         "- Availability now: " + ", ".join(f"{k} {v}" for k, v in sorted(dist.items(), key=lambda x: -x[1])),
     ]
     big = sorted(price_changes, key=lambda x: -abs((x[3] - x[2]) / x[2]) if x[2] else 0)[:15]
@@ -535,8 +580,9 @@ def sync():
         od("product.template", "write", ch, {"x_mt_synced": now})
     linked, created = apply_new_products(od, link, create, now) if CREATE_NEW else (0, 0)
     pics = apply_images(od, img_todo) if img_todo else 0
+    priced = write_many("product.template", price_todo) if price_todo else 0
     log(f"Written: {len(price_changes)} prices, {len(avail_changes)} availabilities, "
-        f"{len(tmpl_target)} sync stamps, {linked} linked, {created} new products in {NEW_CATEG}, {pics} pictures.")
+        f"{len(tmpl_target)} sync stamps, {linked} linked, {created} new products in {NEW_CATEG}, {pics} pictures, {priced} cost/sale prices.")
 
 
 if __name__ == "__main__":
