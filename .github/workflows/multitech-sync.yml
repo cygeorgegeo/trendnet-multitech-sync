@@ -1,8 +1,9 @@
 name: Multitech stock sync
 
 on:
-  schedule:
-    - cron: "17 4 * * *"   # daily 04:17 UTC = 07:17 Cyprus summer / 06:17 winter
+  # schedule moved to the Azure VM vm-sync (22 Oct 2026, job mt-sync 04:17 UTC); manual runs still work
+  #schedule:
+  #  - cron: "17 4 * * *"
   workflow_dispatch:
     inputs:
       command:
