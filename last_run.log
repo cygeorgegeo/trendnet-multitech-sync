@@ -1,42 +1,42 @@
-== Wed Oct 21 23:17:11 UTC 2026 == vm-sync job mt-dry: sync
-Mode: DRY RUN (no writes)
-B2B: 281 pages, first page 9.5s
-  page 20: 8.7s
-  25/280 pages, 234 items, 52s
-  page 40: 8.5s
-  50/280 pages, 459 items, 86s
-  page 60: 8.5s
-  75/280 pages, 684 items, 121s
-  page 80: 8.5s
-  page 100: 5.8s
-  100/280 pages, 909 items, 155s
-  page 120: 6.5s
-  125/280 pages, 1134 items, 188s
+== Wed Oct 21 23:27:41 UTC 2026 == vm-sync job mt-sync: sync
+Mode: LIVE
+B2B: 281 pages, first page 9.3s
+  page 20: 6.1s
+  25/280 pages, 234 items, 43s
+  page 40: 6.1s
+  50/280 pages, 459 items, 73s
+  page 60: 5.9s
+  75/280 pages, 684 items, 103s
+  page 80: 6.4s
+  page 100: 6.6s
+  100/280 pages, 909 items, 135s
+  page 120: 6.3s
+  125/280 pages, 1134 items, 168s
   page 140: 6.4s
-  150/280 pages, 1359 items, 220s
+  150/280 pages, 1359 items, 200s
   page 160: 6.5s
-  175/280 pages, 1584 items, 252s
-  page 180: 6.5s
-  200/280 pages, 1809 items, 284s
+  175/280 pages, 1584 items, 232s
+  page 180: 6.4s
   page 200: 6.4s
-  page 220: 14.4s
-  225/280 pages, 2034 items, 324s
-  page 240: 8.5s
-  250/280 pages, 2259 items, 357s
-  page 260: 8.6s
-  275/280 pages, 2484 items, 395s
-  page 280: 6.4s
-B2B: 2522 cards, 2522 unique SKUs in 397s
+  200/280 pages, 1809 items, 265s
+  page 220: 6.5s
+  225/280 pages, 2034 items, 297s
+  page 240: 5.8s
+  250/280 pages, 2259 items, 339s
+  page 260: 8.7s
+  275/280 pages, 2484 items, 374s
+  page 280: 5.0s
+B2B: 2522 cards, 2522 unique SKUs in 379s
 Odoo: 2910 Multitech supplier rows
-Price list: 2522 products -> multitech_pricelist_2026-10-21_2323.xlsx
-## Multitech sync - DRY RUN
+Price list: 2522 products -> multitech_pricelist_2026-10-21_2334.xlsx
+## Multitech sync - LIVE
 - B2B products: **2522** (complete)
 - Odoo Multitech rows: 2910, matched by SKU: **2521**
 - Price changes: **0**
 - Availability changes: **16**
 - Multitech SKUs not in Odoo: 1 -> link to existing: **0**, create in New Arrivals: **1**
 - Pictures to add (products with no picture): **1**
-- Cost / sale price (+17%) updates: **2496**
+- Cost / sale price (+17%) updates: **0**
 - Availability now: Limited stock 1077, In stock 955, Out of stock 489, Not listed 377
-Dry run - nothing written.
+Written: 0 prices, 16 availabilities, 2898 sync stamps, 0 linked, 1 new products in New Arrivals, 0 pictures, 0 cost/sale prices.
 == vm-sync exit code 0 ==
