@@ -49,6 +49,11 @@ ODOO_KEY = os.environ.get("ODOO_API_KEY", "")
 PARTNER_ID = int(os.environ.get("MT_PARTNER_ID", "18"))
 DRY_RUN = os.environ.get("DRY_RUN", "1").strip().lower() not in ("0", "false", "no")
 REPORT_DIR = os.environ.get("REPORT_DIR", "report")
+CREATE_NEW = os.environ.get("CREATE_NEW", "1").strip().lower() not in ("0", "false", "no")
+MAX_NEW = int(os.environ.get("MAX_NEW", "500"))  # safety cap on products created per run
+NEW_CATEG = os.environ.get("NEW_CATEG", "New Arrivals")
+IMAGES = os.environ.get("IMAGES", "1").strip().lower() not in ("0", "false", "no")  # fill missing pictures
+MAX_IMAGES = int(os.environ.get("MAX_IMAGES", "3000"))
 
 # Safety: never mark products "Not listed" unless the crawl looks complete.
 MIN_ITEMS = 1500
@@ -129,7 +134,20 @@ def parse_listing(html):
         if not sku:
             continue
         price_el = card.select_one(".commerce-product-field-commerce-price")
+        img = None
+        p = card
+        for _ in range(5):
+            if p is None:
+                break
+            el = p.select_one('img[src*="/products/"]')
+            if el and len(p.select(".field-name-title-field")) == 1:
+                img = re.sub(r"/styles/[^/]+/public/", "/", el.get("src", "").split("?")[0])
+                if img.startswith("/"):
+                    img = B2B + img
+                break
+            p = p.parent
         items.append({
+            "img": img,
             "sku": sku,
             "name": title.get_text(" ", strip=True),
             "price": parse_price(price_el.get_text(" ", strip=True) if price_el else ""),
@@ -298,6 +316,93 @@ def write_pricelist(od, feed, code_tid, path):
     log(f"Price list: {len(feed)} products -> {os.path.basename(path)}")
 
 
+def plan_new_products(od, new_items):
+    """Read-only: for Multitech SKUs without a Multitech supplier row, find an existing product
+    with the same internal reference / barcode (link it) or plan a new product (create it)."""
+    skus = [it["sku"] for it in new_items]
+    found = {}
+    for ch in chunks(skus, 300):
+        for t in od("product.template", "search_read",
+                    ["|", ("default_code", "in", ch), ("barcode", "in", ch)],
+                    fields=["id", "default_code", "barcode", "active"], context={"active_test": False}):
+            for k in (t["default_code"], t["barcode"]):
+                if k:
+                    found.setdefault(k.strip().upper(), t)
+    link, create = [], []
+    for it in new_items:
+        t = found.get(it["sku"].strip().upper())
+        (link if t else create).append((it, t))
+    return link, create
+
+
+def new_arrivals_category(od):
+    ids = od("product.category", "search", [("name", "=", NEW_CATEG)], limit=1)
+    return ids[0] if ids else od("product.category", "create", {"name": NEW_CATEG})
+
+
+def apply_new_products(od, link, create, now):
+    """Link existing products to Multitech, and create the rest unpublished in New Arrivals.
+    New products get the Multitech dealer price as cost; sale price stays 0 so they are not
+    sellable until reviewed (rule: no sale price -> out of stock, not orderable)."""
+    linked = created = 0
+    for it, t in link:
+        od("product.supplierinfo", "create", {"partner_id": PARTNER_ID, "product_tmpl_id": t["id"],
+                                              "product_code": it["sku"], "product_name": it["name"][:250],
+                                              "price": it["price"] or 0.0})
+        od("product.template", "write", [t["id"]], {"x_mt_availability": it["stock"], "x_mt_synced": now})
+        linked += 1
+    if create:
+        categ = new_arrivals_category(od)
+        for it, _ in create[:MAX_NEW]:
+            od("product.template", "create", {
+                "name": it["name"][:250], "default_code": it["sku"], "categ_id": categ,
+                "type": "consu", "sale_ok": True, "purchase_ok": True, "is_published": False,
+                "list_price": 0.0, "standard_price": it["price"] or 0.0,
+                "x_mt_availability": it["stock"], "x_mt_synced": now,
+                **({"image_1920": b} if IMAGES and it.get("img") and (b := fetch_image(it["img"])) else {}),
+                "seller_ids": [(0, 0, {"partner_id": PARTNER_ID, "product_code": it["sku"],
+                                       "product_name": it["name"][:250], "price": it["price"] or 0.0})],
+            })
+            created += 1
+    return linked, created
+
+
+def fetch_image(url):
+    import base64
+    try:
+        r = requests.get(url, timeout=30, headers={"User-Agent": UA})
+        if r.status_code == 200 and r.headers.get("content-type", "").startswith("image") and len(r.content) > 1500:
+            return base64.b64encode(r.content).decode()
+    except requests.RequestException:
+        pass
+    return None
+
+
+def plan_images(od, feed, code_tid):
+    """Read-only: Multitech-linked products that have no picture in Odoo and a picture on Multitech."""
+    want = {}
+    for sku, (tid, _) in code_tid.items():
+        it = feed.get(sku)
+        if it and it.get("img"):
+            want.setdefault(tid, it["img"])
+    missing = []
+    ids = sorted(want)
+    for ch in chunks(ids, 500):
+        missing += od("product.template", "search", [("id", "in", ch), ("image_1920", "=", False)])
+    return [(tid, want[tid]) for tid in missing]
+
+
+def apply_images(od, todo):
+    from concurrent.futures import ThreadPoolExecutor
+    done = 0
+    with ThreadPoolExecutor(max_workers=6) as ex:
+        for (tid, _), b64 in zip(todo, ex.map(lambda t: fetch_image(t[1]), todo)):
+            if b64:
+                od("product.template", "write", [tid], {"image_1920": b64})
+                done += 1
+    return done
+
+
 def chunks(seq, n=200):
     seq = list(seq)
     for i in range(0, len(seq), n):
@@ -356,6 +461,8 @@ def sync():
         if c and r["product_tmpl_id"]:
             code_tid.setdefault(c, (r["product_tmpl_id"][0], r["price"]))
     new_skus = [feed[k] for k in feed if k not in matched_skus]
+    link, create = plan_new_products(od, new_skus) if CREATE_NEW else ([], [])
+    img_todo = plan_images(od, feed, code_tid)[:MAX_IMAGES] if IMAGES else []
 
     # ---------------------------------------------------------------- report
     os.makedirs(REPORT_DIR, exist_ok=True)
@@ -372,9 +479,11 @@ def sync():
             w.writerow([tid, cur_avail.get(tid, ""), a])
     with open(os.path.join(REPORT_DIR, f"not_in_odoo_{stamp}.csv"), "w", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["sku", "name", "price", "stock"])
+        w.writerow(["sku", "name", "price", "stock", "action"])
+        act = {it["sku"]: f"link to existing product {t['id']}" for it, t in link}
+        act.update({it["sku"]: f"create in {NEW_CATEG}" for it, _ in create[:MAX_NEW]})
         for it in sorted(new_skus, key=lambda x: x["sku"]):
-            w.writerow([it["sku"], it["name"], it["price"], it["stock"]])
+            w.writerow([it["sku"], it["name"], it["price"], it["stock"], act.get(it["sku"], "skip")])
 
     try:
         write_pricelist(od, feed, code_tid, os.path.join(REPORT_DIR, f"multitech_pricelist_{stamp}.xlsx"))
@@ -390,7 +499,9 @@ def sync():
         f"- Odoo Multitech rows: {len(rows)}, matched by SKU: **{len(matched_skus)}**",
         f"- Price changes: **{len(price_changes)}**",
         f"- Availability changes: **{len(avail_changes)}**",
-        f"- Multitech SKUs not in Odoo: {len(new_skus)} (see not_in_odoo CSV)",
+        f"- Multitech SKUs not in Odoo: {len(new_skus)} -> link to existing: **{len(link)}**, "
+        f"create in {NEW_CATEG}: **{min(len(create), MAX_NEW)}**" + (" (cap reached)" if len(create) > MAX_NEW else ""),
+        f"- Pictures to add (products with no picture): **{len(img_todo)}**",
         "- Availability now: " + ", ".join(f"{k} {v}" for k, v in sorted(dist.items(), key=lambda x: -x[1])),
     ]
     big = sorted(price_changes, key=lambda x: -abs((x[3] - x[2]) / x[2]) if x[2] else 0)[:15]
@@ -422,7 +533,10 @@ def sync():
     now = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     for ch in chunks(list(tmpl_target), 500):
         od("product.template", "write", ch, {"x_mt_synced": now})
-    log(f"Written: {len(price_changes)} prices, {len(avail_changes)} availabilities, {len(tmpl_target)} sync stamps.")
+    linked, created = apply_new_products(od, link, create, now) if CREATE_NEW else (0, 0)
+    pics = apply_images(od, img_todo) if img_todo else 0
+    log(f"Written: {len(price_changes)} prices, {len(avail_changes)} availabilities, "
+        f"{len(tmpl_target)} sync stamps, {linked} linked, {created} new products in {NEW_CATEG}, {pics} pictures.")
 
 
 if __name__ == "__main__":
