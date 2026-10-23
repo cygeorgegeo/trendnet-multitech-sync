@@ -1,44 +1,54 @@
-== Thu Oct 22 08:17:51 UTC 2026 == vm-sync job mt-sync: sync
-[mt-sync] snapshot failed, the mail will have no product list (ProtocolError: <ProtocolError for trendnet.com.cy/xmlrpc/2/common: 429 Too Many Requests>)
+== Fri Oct 23 04:17:03 UTC 2026 == vm-sync job mt-sync: sync
+[mt-sync] snapshot: 22982 products, 24296 vendor rows
 Mode: LIVE
-B2B: 281 pages, first page 9.7s
+B2B: 281 pages, first page 9.6s
   page 20: 6.4s
-  25/280 pages, 234 items, 44s
-  page 40: 12.3s
-  50/280 pages, 459 items, 76s
-  page 60: 6.5s
-  75/280 pages, 684 items, 108s
-  page 80: 6.4s
-  page 100: 6.9s
-  100/280 pages, 909 items, 140s
-  page 120: 8.5s
-  125/280 pages, 1134 items, 176s
-  page 140: 8.8s
-  150/280 pages, 1359 items, 211s
-  page 160: 8.9s
-  175/280 pages, 1584 items, 253s
-  page 180: 8.4s
-  page 200: 10.0s
-  200/280 pages, 1809 items, 289s
-  page 220: 12.9s
-  225/280 pages, 2034 items, 327s
+  25/280 pages, 234 items, 47s
+  page 40: 7.3s
+  50/280 pages, 459 items, 84s
+  page 60: 6.4s
+  75/280 pages, 684 items, 120s
+  page 80: 8.6s
+  100/280 pages, 909 items, 155s
+  page 100: 8.7s
+  page 120: 8.4s
+  125/280 pages, 1134 items, 191s
+  page 140: 8.7s
+  150/280 pages, 1359 items, 226s
+  page 160: 10.0s
+  175/280 pages, 1584 items, 268s
+  page 180: 6.9s
+  200/280 pages, 1809 items, 301s
+  page 200: 6.5s
+  page 220: 7.0s
+  225/280 pages, 2034 items, 340s
   page 240: 6.6s
-  250/280 pages, 2259 items, 360s
-  page 260: 6.3s
-  275/280 pages, 2484 items, 393s
-  page 280: 6.0s
-B2B: 2522 cards, 2522 unique SKUs in 399s
+  250/280 pages, 2259 items, 373s
+  page 260: 6.5s
+  275/280 pages, 2484 items, 405s
+  page 280: 3.0s
+B2B: 2528 cards, 2528 unique SKUs in 408s
 Odoo: 2911 Multitech supplier rows
-Price list: 2522 products -> multitech_pricelist_2026-10-22_0824.xlsx
+Price list: 2528 products -> multitech_pricelist_2026-10-23_0424.xlsx
 ## Multitech sync - LIVE
-- B2B products: **2522** (complete)
-- Odoo Multitech rows: 2911, matched by SKU: **2522**
-- Price changes: **0**
-- Availability changes: **0**
-- Multitech SKUs not in Odoo: 0 -> link to existing: **0**, create in New Arrivals: **0**
-- Pictures to add (products with no picture): **1**
+- B2B products: **2528** (complete)
+- Odoo Multitech rows: 2911, matched by SKU: **2524**
+- Price changes: **7**
+- Availability changes: **82**
+- Multitech SKUs not in Odoo: 4 -> link to existing: **0**, create in New Arrivals: **4**
+- Pictures to add (products with no picture): **3**
 - Cost / sale price (+17%) updates: **0**
-- Availability now: Limited stock 1078, In stock 955, Out of stock 489, Not listed 377
-Written: 0 prices, 0 availabilities, 2899 sync stamps, 0 linked, 0 new products in New Arrivals, 0 pictures, 0 cost/sale prices.
-report: mailed to george@trendnet.com.cy (0 products, 0 changes)
+- Availability now: Limited stock 1059, In stock 969, Out of stock 496, Not listed 375
+
+| SKU | old € | new € |
+|---|---:|---:|
+| 570-ABHK/273707355 | 15.00 | 5.00 |
+| C11CJ18402 | 252.00 | 187.00 |
+| C11CH43402 | 304.00 | 234.00 |
+| 452-11421/272842349 | 105.00 | 113.00 |
+| 21WN006CVU | 2149.00 | 2299.00 |
+| 4XB7A90875 | 2899.00 | 2999.00 |
+| Q2612A | 81.81 | 83.55 |
+Written: 7 prices, 82 availabilities, 2899 sync stamps, 0 linked, 4 new products in New Arrivals, 2 pictures, 0 cost/sale prices.
+report: mailed to george@trendnet.com.cy (18649 products, 26638 changes)
 == vm-sync exit code 0 ==
